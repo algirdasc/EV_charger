@@ -3,7 +3,21 @@
     "step": {
       "user": {
         "title": "Tuya charger setup",
-        "description": "Enter local charger credentials.",
+        "description": "How would you like to find your charger?",
+        "data": {
+          "mode": "Discovery method"
+        }
+      },
+      "scan": {
+        "title": "Discovered chargers",
+        "description": "Select the charger found on your network, or choose 'Enter manually'.",
+        "data": {
+          "device": "Charger"
+        }
+      },
+      "credentials": {
+        "title": "Charger credentials",
+        "description": "Enter the local key and confirm the other settings.",
         "data": {
           "host": "Local IP address",
           "device_id": "Device ID",
@@ -15,6 +29,7 @@
     },
     "error": {
       "cannot_connect": "Unable to reach charger with these settings.",
+      "no_devices_found": "No Tuya devices found on the network. Enter credentials manually.",
       "unknown": "Unexpected error."
     },
     "abort": {

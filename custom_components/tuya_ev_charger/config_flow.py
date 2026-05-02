@@ -4,6 +4,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+import tinytuya
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -77,28 +78,41 @@ class CannotConnectError(Exception):
     """Raised when the charger cannot be reached."""
 
 
-def _build_user_schema(
-    user_input: Mapping[str, Any] | None = None,
+def _build_credentials_schema(
+    prefill: Mapping[str, Any] | None = None,
 ) -> vol.Schema:
-    user_input = user_input or {}
+    prefill = prefill or {}
     return vol.Schema(
         {
-            vol.Required(CONF_HOST, default=user_input.get(CONF_HOST, "")): str,
+            vol.Required(CONF_HOST, default=prefill.get(CONF_HOST, "")): str,
             vol.Required(
                 CONF_DEVICE_ID,
-                default=user_input.get(CONF_DEVICE_ID, ""),
+                default=prefill.get(CONF_DEVICE_ID, ""),
             ): str,
-            vol.Required(CONF_LOCAL_KEY, default=user_input.get(CONF_LOCAL_KEY, "")): str,
+            vol.Required(CONF_LOCAL_KEY, default=prefill.get(CONF_LOCAL_KEY, "")): str,
             vol.Required(
                 CONF_PROTOCOL_VERSION,
-                default=user_input.get(CONF_PROTOCOL_VERSION, DEFAULT_PROTOCOL_VERSION),
+                default=prefill.get(CONF_PROTOCOL_VERSION, DEFAULT_PROTOCOL_VERSION),
             ): vol.In(SUPPORTED_PROTOCOL_VERSIONS),
             vol.Required(
                 CONF_CHARGER_PROFILE,
-                default=user_input.get(CONF_CHARGER_PROFILE, DEFAULT_CHARGER_PROFILE),
+                default=prefill.get(CONF_CHARGER_PROFILE, DEFAULT_CHARGER_PROFILE),
             ): vol.In(CHARGER_PROFILES),
         }
     )
+
+
+def _sync_scan_devices() -> dict[str, dict]:
+    """Blocking tinytuya UDP scan — run in executor."""
+    try:
+        devices = tinytuya.deviceScan(verbose=False, maxretry=3, color=False, poll=False)
+        return {
+            dev_id: info
+            for dev_id, info in devices.items()
+            if isinstance(info, dict) and info.get("ip")
+        }
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 async def _async_validate_input(
@@ -124,6 +138,10 @@ async def _async_validate_input(
 class TuyaEVChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
+    def __init__(self) -> None:
+        self._discovered: dict[str, dict] = {}
+        self._prefill: dict[str, Any] = {}
+
     @staticmethod
     @callback
     def async_get_options_flow(
@@ -135,11 +153,82 @@ class TuyaEVChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self,
         user_input: dict[str, Any] | None = None,
     ) -> FlowResult:
-        errors: dict[str, str] = {}
+        if user_input is not None:
+            if user_input["mode"] == "scan":
+                return await self.async_step_scan()
+            return await self.async_step_credentials()
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("mode", default="scan"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(value="scan", label="Scan network"),
+                                selector.SelectOptionDict(value="manual", label="Enter manually"),
+                            ],
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_scan(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> FlowResult:
+        if user_input is not None:
+            selected = user_input["device"]
+            if selected == "__manual__":
+                self._prefill = {}
+            else:
+                info = self._discovered.get(selected, {})
+                self._prefill = {
+                    CONF_HOST: info.get("ip", ""),
+                    CONF_DEVICE_ID: selected,
+                    CONF_PROTOCOL_VERSION: str(info.get("version", DEFAULT_PROTOCOL_VERSION)),
+                }
+            return await self.async_step_credentials()
+
+        self._discovered = await self.hass.async_add_executor_job(_sync_scan_devices)
+
+        if not self._discovered:
+            self._prefill = {}
+            return await self.async_step_credentials(errors={"base": "no_devices_found"})
+
+        options = [
+            selector.SelectOptionDict(
+                value=dev_id,
+                label=f"{dev_id}  —  {info['ip']}  (v{info.get('version', '?')})",
+            )
+            for dev_id, info in self._discovered.items()
+        ] + [selector.SelectOptionDict(value="__manual__", label="Enter manually")]
+
+        return self.async_show_form(
+            step_id="scan",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("device"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=options,
+                            mode=selector.SelectSelectorMode.LIST,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_credentials(
+        self,
+        user_input: dict[str, Any] | None = None,
+        errors: dict[str, str] | None = None,
+    ) -> FlowResult:
+        errors = errors or {}
         if user_input is not None:
             await self.async_set_unique_id(str(user_input[CONF_DEVICE_ID]))
             self._abort_if_unique_id_configured()
-
             try:
                 info = await _async_validate_input(self.hass, user_input)
             except CannotConnectError:
@@ -151,8 +240,8 @@ class TuyaEVChargerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=info["title"], data=user_input)
 
         return self.async_show_form(
-            step_id="user",
-            data_schema=_build_user_schema(user_input),
+            step_id="credentials",
+            data_schema=_build_credentials_schema(user_input or self._prefill),
             errors=errors,
         )
 
