@@ -47,9 +47,19 @@ class TuyaEVChargerChargeSessionSwitch(TuyaEVChargerEntity, SwitchEntity):
             card_index=CARD_ROLE_INDEX[CARD_ROLE_CHARGE_SESSION],
         )
         self._attr_unique_id = f"{runtime_data.client.device_id}_charge_session"
+        # Last enable/disable command we successfully sent. The charger's
+        # do_charge DP reverts to False whenever no current is flowing (no car
+        # drawing, PAUSE, or WORKING after a completed charge), so reporting it
+        # directly makes evcc see "charger out of sync: expected enabled, got
+        # disabled". evcc expects Enabled() to mirror its last Enable() command,
+        # so we hold the commanded value until the next command. Seeded from the
+        # device (None) before any command and after a restart.
+        self._commanded_on: bool | None = None
 
     @property
     def is_on(self) -> bool:
+        if self._commanded_on is not None:
+            return self._commanded_on
         data = self.coordinator.data
         if data is None:
             return False
@@ -60,11 +70,15 @@ class TuyaEVChargerChargeSessionSwitch(TuyaEVChargerEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs: object) -> None:
         if not await self._runtime_data.client.async_set_charge_enabled(True):
             raise HomeAssistantError("Unable to start charging session.")
+        self._commanded_on = True
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: object) -> None:
         if not await self._runtime_data.client.async_set_charge_enabled(False):
             raise HomeAssistantError("Unable to stop charging session.")
+        self._commanded_on = False
+        self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
 
