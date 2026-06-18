@@ -73,6 +73,9 @@
       "temperature": {
         "name": "Temperature"
       },
+      "charge_energy_total": {
+        "name": "Energie chargee"
+      },
       "evcc_status": {
         "name": "Statut evcc",
         "state": {

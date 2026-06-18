@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -13,6 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     UnitOfElectricCurrent,
     UnitOfElectricPotential,
+    UnitOfEnergy,
     UnitOfPower,
     UnitOfTemperature,
     UnitOfTime,
@@ -20,6 +22,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import TuyaEVChargerRuntimeData
 from .const import (
@@ -269,6 +272,7 @@ async def async_setup_entry(
             TuyaEVChargerSensor(entry, runtime_data, description)
             for description in SENSOR_DESCRIPTIONS
         ]
+        + [TuyaEVChargerEnergySensor(entry, runtime_data)]
         + [
             TuyaEVChargerSurplusControllerSensor(entry, runtime_data, description)
             for description in SURPLUS_CONTROLLER_SENSOR_DESCRIPTIONS
@@ -302,6 +306,60 @@ class TuyaEVChargerSensor(TuyaEVChargerEntity, SensorEntity):
         if data is None:
             return None
         return self.entity_description.value_fn(data)
+
+
+class TuyaEVChargerEnergySensor(TuyaEVChargerEntity, RestoreSensor):
+    """Cumulative charged energy, integrated from live power.
+
+    The charger exposes no cumulative-energy datapoint, so this Riemann-sums
+    power_l1 over the time between coordinator updates into a monotonic kWh
+    counter (suitable for evcc's charge meter and the HA Energy dashboard).
+    The running total survives restarts via RestoreSensor.
+    """
+
+    _attr_translation_key = "charge_energy_total"
+    _attr_icon = "mdi:lightning-bolt"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_suggested_display_precision = 3
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        runtime_data: TuyaEVChargerRuntimeData,
+    ) -> None:
+        super().__init__(entry=entry, runtime_data=runtime_data)
+        self._attr_unique_id = f"{runtime_data.client.device_id}_charge_energy_total"
+        self._energy_kwh: float = 0.0
+        self._last_ts: float | None = None
+
+    @property
+    def native_value(self) -> float:
+        return round(self._energy_kwh, 6)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_sensor_data()
+        if last is not None and last.native_value is not None:
+            try:
+                self._energy_kwh = max(0.0, float(last.native_value))
+            except (TypeError, ValueError):
+                self._energy_kwh = 0.0
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        now = dt_util.utcnow().timestamp()
+        data = self.coordinator.data
+        if (
+            data is not None
+            and data.power_l1 is not None
+            and self._last_ts is not None
+        ):
+            elapsed_h = max(0.0, now - self._last_ts) / 3600.0
+            self._energy_kwh += max(0.0, data.power_l1) * elapsed_h
+        self._last_ts = now
+        super()._handle_coordinator_update()
 
 
 class TuyaEVChargerSurplusControllerSensor(TuyaEVChargerEntity, SensorEntity):
