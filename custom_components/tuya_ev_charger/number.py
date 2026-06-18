@@ -188,9 +188,11 @@ class TuyaEVChargerCurrentNumber(TuyaEVChargerEntity, NumberEntity):
             raise HomeAssistantError("Current setpoint must be an integer.")
 
         allowed = self._allowed_currents()
-        if amperage not in allowed:
+        minimum, maximum = min(allowed), max(allowed)
+        if not minimum <= amperage <= maximum:
             raise HomeAssistantError(
-                f"Unsupported current setpoint: {amperage}A (allowed: {allowed})."
+                f"Unsupported current setpoint: {amperage}A "
+                f"(allowed range: {minimum}A-{maximum}A)."
             )
 
         success = await self._runtime_data.client.async_set_charge_current(amperage)
