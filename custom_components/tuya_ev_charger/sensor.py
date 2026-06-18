@@ -42,6 +42,37 @@ from .solar_surplus import SolarSurplusSnapshot
 from .tuya_ev_charger import EVMetrics
 
 
+# Power (kW) above which the charger is considered to be actively charging.
+# The charger can remain in WORKING after a completed charge, so a live power
+# reading is what distinguishes "charging" (C) from "connected, done" (B).
+_EVCC_CHARGING_POWER_THRESHOLD_KW = 0.1
+
+# work_state_debug values that mean a vehicle is plugged in but not charging.
+_EVCC_CONNECTED_STATES = frozenset({"IDLEINS", "WAIT", "PAUSE", "DONE"})
+
+
+def _evcc_status(data: EVMetrics) -> str:
+    """Map the charger state to evcc's IEC 61851 status letters (A/B/C).
+
+    A = ready (no vehicle), B = connected (plugged in, not charging),
+    C = charging.
+
+    work_state_debug vocabulary: IDLE (no car), IDLEINS (plugged in, idle),
+    WAIT (scheduled), PAUSE (paused), WORKING (charging). WORKING can persist
+    after a completed charge, so it only counts as charging while power is
+    actually being drawn -- otherwise the car is connected but idle.
+    """
+    state = (data.work_state_debug or "").strip().upper()
+    charging_power = (data.power_l1 or 0.0) >= _EVCC_CHARGING_POWER_THRESHOLD_KW
+    if state == "WORKING":
+        return "C" if charging_power else "B"
+    if charging_power:
+        return "C"
+    if state in _EVCC_CONNECTED_STATES:
+        return "B"
+    return "A"
+
+
 @dataclass(frozen=True, kw_only=True)
 class TuyaEVChargerSensorDescription(SensorEntityDescription):
     value_fn: Callable[[EVMetrics], float | int | str | None]
@@ -107,6 +138,14 @@ SENSOR_DESCRIPTIONS: tuple[TuyaEVChargerSensorDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         suggested_display_precision=1,
         value_fn=lambda data: data.temperature,
+    ),
+    TuyaEVChargerSensorDescription(
+        key="evcc_status",
+        translation_key="evcc_status",
+        icon="mdi:ev-station",
+        device_class=SensorDeviceClass.ENUM,
+        options=["A", "B", "C"],
+        value_fn=_evcc_status,
     ),
     TuyaEVChargerSensorDescription(
         key="work_state",

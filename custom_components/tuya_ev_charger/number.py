@@ -53,7 +53,7 @@ CURRENT_SETPOINT_DESCRIPTION = NumberEntityDescription(
     native_min_value=float(min(ALLOWED_CURRENTS)),
     native_max_value=float(max(ALLOWED_CURRENTS)),
     native_step=1.0,
-    mode=NumberMode.BOX,
+    mode=NumberMode.SLIDER,
 )
 
 
@@ -183,9 +183,7 @@ class TuyaEVChargerCurrentNumber(TuyaEVChargerEntity, NumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        amperage = int(value)
-        if float(amperage) != value:
-            raise HomeAssistantError("Current setpoint must be an integer.")
+        amperage = round(value)
 
         allowed = self._allowed_currents()
         minimum, maximum = min(allowed), max(allowed)

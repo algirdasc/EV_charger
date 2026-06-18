@@ -88,6 +88,14 @@
       "temperature": {
         "name": "Temperature"
       },
+      "evcc_status": {
+        "name": "evcc status",
+        "state": {
+          "A": "Ready",
+          "B": "Connected",
+          "C": "Charging"
+        }
+      },
       "work_state": {
         "name": "Work state"
       },
