@@ -77,6 +77,22 @@ def _evcc_status(data: EVMetrics) -> str:
     return "A"
 
 
+def _human_friendly_status(data: EVMetrics) -> str:
+    state = (data.work_state_debug or "").strip().upper()
+    if state == "WORKING":
+        return "charging"
+    if state in "IDLEINS":
+        return "completed"
+    if state in "WAIT":
+        return "awaiting_start"
+    if state in "PAUSE":
+        return "awaiting_start"
+    if state in "IDLE":
+        return "awaiting_start"
+
+    return "disconnected"
+
+
 @dataclass(frozen=True, kw_only=True)
 class TuyaEVChargerSensorDescription(SensorEntityDescription):
     value_fn: Callable[[EVMetrics], float | int | str | None]
@@ -150,6 +166,12 @@ SENSOR_DESCRIPTIONS: tuple[TuyaEVChargerSensorDescription, ...] = (
         device_class=SensorDeviceClass.ENUM,
         options=["A", "B", "C"],
         value_fn=_evcc_status,
+    ),
+    TuyaEVChargerSensorDescription(
+        key="status",
+        translation_key="status",
+        icon="mdi:ev-station",
+        value_fn=_human_friendly_status,
     ),
     TuyaEVChargerSensorDescription(
         key="work_state",
