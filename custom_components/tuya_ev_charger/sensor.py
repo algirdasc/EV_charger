@@ -82,7 +82,9 @@ def _human_friendly_status(data: EVMetrics) -> str:
     if state in "PAUSE":
         return "awaiting_start"
     if state in "IDLE":
-        return "awaiting_start"
+        return "ready_to_charge"
+    if state in "FAULT":
+        return "error"
 
     return "disconnected"
 
