@@ -133,52 +133,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
-async def _async_register_services(hass: HomeAssistant) -> None:
-    domain_data = hass.data.setdefault(DOMAIN, {})
-    if domain_data.get("services_registered"):
-        return
-
-    async def _handle_profile_assistant(call: ServiceCall) -> None:
-        entry = _resolve_entry_from_call(hass, call)
-        runtime_data = _resolve_runtime_data(entry)
-        apply_suggestion = bool(call.data.get(SERVICE_DATA_APPLY, False))
-
-        report = await async_profile_assistant_report(runtime_data.client)
-        suggested = str(report.get("suggested_profile", "")).lower()
-        applied_profile: str | None = None
-        if apply_suggestion and suggested in CHARGER_PROFILES:
-            new_options = dict(entry.options)
-            new_options[CONF_CHARGER_PROFILE] = suggested
-            hass.config_entries.async_update_entry(entry, options=new_options)
-            applied_profile = suggested
-
-        payload = {
-            "entry_id": entry.entry_id,
-            "entry_title": entry.title,
-            "suggested_profile": suggested or None,
-            "applied_profile": applied_profile,
-            "report": report,
-        }
-        hass.bus.async_fire(f"{DOMAIN}_profile_assistant", payload)
-        persistent_notification.async_create(
-            hass=hass,
-            title=f"Tuya EV Charger Profile Assistant ({entry.title})",
-            message=(
-                "Profile assistant report:\n\n```json\n"
-                f"{json.dumps(payload, indent=2, ensure_ascii=True)}\n```"
-            ),
-            notification_id=f"{DOMAIN}_{entry.entry_id}_profile_assistant",
-        )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_PROFILE_ASSISTANT,
-        _handle_profile_assistant,
-        schema=SERVICE_PROFILE_ASSISTANT_SCHEMA,
-    )
-    domain_data["services_registered"] = True
-
-
 def _resolve_entry_from_call(hass: HomeAssistant, call: ServiceCall) -> ConfigEntry:
     entry_id = str(call.data.get(SERVICE_DATA_ENTRY_ID, "")).strip()
     entries = hass.config_entries.async_entries(DOMAIN)
