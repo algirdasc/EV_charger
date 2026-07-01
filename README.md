@@ -71,10 +71,6 @@ entities for an evcc `custom` charger are:
 - `charger_profile`
 - `charger_profile_json` (optional)
 
-## Home Assistant services
-
-- `tuya_ev_charger.profile_assistant` — inspect the raw DPS payload and suggest the closest charger profile (optionally apply it)
-
 ## Exposed entities
 
 - `sensor`: voltage, current, power, temperature, cumulative charged energy,

@@ -49,8 +49,6 @@ CONF_LOCAL_KEY = "local_key"
 CONF_PROTOCOL_VERSION = "protocol_version"
 CONF_SCAN_INTERVAL = "scan_interval"
 
-SERVICE_PROFILE_ASSISTANT = "profile_assistant"
-
 CHARGER_PROFILE_DEPOW_V2 = "depow_v2"
 CHARGER_PROFILE_GENERIC_V1 = "generic_v1"
 CHARGER_PROFILE_CUSTOM_JSON = "custom_json"
